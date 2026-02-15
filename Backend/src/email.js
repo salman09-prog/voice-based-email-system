@@ -11,6 +11,7 @@ router.post('/fetch_emails', function(req, response) {
         try {
             const cleanPassword = req.session.password.replace(/ /g, '');
             
+            // IMAP CONFIGURATION
             get_emails(new Imap({
                 user: req.session.address,
                 password: cleanPassword, 
@@ -18,7 +19,8 @@ router.post('/fetch_emails', function(req, response) {
                 port: 993,
                 tlsOptions: { rejectUnauthorized: false },
                 tls: true,
-                authTimeout: 10000 
+                authTimeout: 20000, // Increased timeout
+                connTimeout: 20000
             }), req.body["search"], (err, emails) => {
                 if (err) {
                     console.log("IMAP Error:", err);
@@ -60,7 +62,7 @@ router.post('/send_email', function(req, response) {
                 console.log("Send Error:", err);
                 response.send({ 
                     code: UNEXPECTED, 
-                    detail: "Send Error: " + (err.message || err), 
+                    detail: "Send Error: " + (err.message || "Timeout"), 
                     data: null 
                 });
             } else {
@@ -72,17 +74,26 @@ router.post('/send_email', function(req, response) {
     }
 });
 
-// Helper: Send Email (UPDATED TO FIX TIMEOUT)
+// Helper: Send Email (FORCE IPv4 & SSL)
 function write_email(options, content, callback) {
     try {
-        // We explicitly use Port 587 to avoid Render blocking Port 465
         const send = Gmail({
             user: options.user,
             pass: options.pass,
             to:   options.to,
             subject: options.subject,
-            port: 587,         // Standard SMTP Port
-            secure: false      // Use STARTTLS (Required for Port 587)
+            host: 'smtp.gmail.com', // Explicit Host
+            port: 465,              // Explicit Port (SSL)
+            secure: true,           // Required for 465
+            connectionTimeout: 20000, // 20 Seconds Timeout
+            greetingTimeout: 10000,
+            socketTimeout: 20000,
+            tls: {
+                rejectUnauthorized: false
+            },
+            // CRITICAL FIX: FORCE IPv4
+            // (Render sometimes fails with IPv6 on Gmail)
+            family: 4 
         });
 
         send({ text: content }, (error, result) => {
