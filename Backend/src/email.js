@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 var Imap = require('imap');
-const Gmail = require('gmail-send');
+const nodemailer = require('nodemailer');
 const simpleParser = require('mailparser').simpleParser;
 const {SUCCESS, NOT_AUTH, UNEXPECTED} = require("./error_codes.js");
 
@@ -75,35 +75,41 @@ router.post('/send_email', function(req, response) {
 });
 
 // Helper: Send Email (FORCE IPv4 & SSL)
-function write_email(options, content, callback) {
+async function write_email(options, content, callback) {
     try {
-        const send = Gmail({
-            user: options.user,
-            pass: options.pass,
-            to:   options.to,
-            subject: options.subject,
-            host: 'smtp.gmail.com', // Explicit Host
-            port: 465,              // Explicit Port (SSL)
-            secure: true,           // Required for 465
-            connectionTimeout: 20000, // 20 Seconds Timeout
-            greetingTimeout: 10000,
-            socketTimeout: 20000,
+        const transporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 587,              // STARTTLS
+            secure: false,          // false for 587
+            requireTLS: true,
+            auth: {
+                user: options.user,
+                pass: options.pass   // Google App Password
+            },
             tls: {
                 rejectUnauthorized: false
             },
-            // CRITICAL FIX: FORCE IPv4
-            // (Render sometimes fails with IPv6 on Gmail)
-            family: 4 
+            connectionTimeout: 20000,
+            greetingTimeout: 10000,
+            socketTimeout: 20000,
+            family: 4   // Force IPv4 (important on Render)
         });
 
-        send({ text: content }, (error, result) => {
-            if (error) callback(error, null);
-            else callback(null, result);
+        await transporter.verify(); // Helps catch connection issues early
+
+        const info = await transporter.sendMail({
+            from: options.user,
+            to: options.to,
+            subject: options.subject,
+            text: content
         });
-    } catch(e) {
-        callback(e, null);
+
+        callback(null, info);
+    } catch (error) {
+        callback(error, null);
     }
 }
+
 
 // Helper: Fetch Emails
 function get_emails(imap, search_str, callback) {
