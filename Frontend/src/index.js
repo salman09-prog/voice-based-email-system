@@ -11,6 +11,8 @@ import App from './App';
 window.process = process;
 
 Axios.defaults.baseURL = "https://voice-based-email-system-4353.onrender.com" 
+Axios.defaults.withCredentials = true;
+
 
 // 4. Render app
 ReactDOM.render(<App />, document.getElementById('root'));

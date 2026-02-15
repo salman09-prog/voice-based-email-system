@@ -4,22 +4,13 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
-
-// 1. Database Connection (Ensure this matches your Render info)
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } // Required for Render
-});
 
 // 2. CORS Configuration (MUST BE AT THE TOP)
 app.use(cors({
-    origin: [
-        "https://voice-based-email-system.vercel.app", // Your Vercel Frontend
-        "http://localhost:3000" // For local testing
-    ],
-    credentials: true, // Allow cookies
-    methods: ["POST", "PUT", "GET", "OPTIONS", "HEAD"],
+    origin: "https://voice-based-email-system.vercel.app",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 // 3. Body Parser
@@ -27,6 +18,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // 4. Session Configuration
+app.set('trust proxy', 1);
 app.use(session({
     store: new pgSession({
         pool: pool,
