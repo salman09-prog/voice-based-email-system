@@ -1,13 +1,13 @@
-// Step 1: Include required modules
+const express = require('express');
+const router = express.Router(); // Create the router
 var Imap = require('imap'),
-inspect = require('util').inspect; 
+    inspect = require('util').inspect; 
 const Gmail = require('gmail-send');
 const simpleParser = require('mailparser').simpleParser;
 const {SUCCESS, NOT_AUTH, UNEXPECTED} = require("./error_codes.js");
 
-
-//Fetch emails from folder indicated at req.body["search"] (either "SENT" or "INBOX")
-exports.fetch_emails = function(req, response) {
+// 1. Fetch Emails Route
+router.post('/fetch_emails', function(req, response) {
     if (req.session.address) {
         get_emails(new Imap({
             user: req.session.address,
@@ -34,10 +34,10 @@ exports.fetch_emails = function(req, response) {
             data: null
         })
     }
-}
+});
 
-//Send email using gmail-send package
-exports.send_email = function(req, response) {
+// 2. Send Email Route
+router.post('/send_email', function(req, response) {
     if (req.session.address) {
         //Extract necessary information from request body
         const body = req.body;
@@ -77,7 +77,7 @@ exports.send_email = function(req, response) {
             data: null
         })
     }
-}
+});
 
 
 //Local function used by send_email
@@ -99,18 +99,29 @@ function get_emails(imap, search_str,callback) {
     function openBox(cb) {
         //Open the requested box (email folder "Sent emails" or "Inbox")
         imap.getBoxes((err, boxes) => {
-            console.log(boxes);
+            if (err) {
+                // Safety check if connection fails
+                console.log("IMAP Error:", err);
+                return;
+            }
+            // console.log(boxes);
             if (search_str === "SENT") {
-                var objs = boxes["[Gmail]"].children
-                //API is language dependend so sent emails box cannot be address directly as "Sent Mails"
-                //For example, Turkish users have "Gönderilmiş Postalar" folder
-                //So iterate over all boxes to find the correct one by checking attributes
-                for (let key of Object.keys(objs)) {
-                    if (objs[key].attribs[1] === "\\Sent") {
-                        console.log("[Gmail]/" + key.trim(), ":",objs[key].attribs[1])
-                        imap.openBox("[Gmail]/" + key.trim(), true, cb);
+                if(boxes["[Gmail]"]) {
+                    var objs = boxes["[Gmail]"].children
+                    //API is language dependend so sent emails box cannot be address directly as "Sent Mails"
+                    //For example, Turkish users have "Gönderilmiş Postalar" folder
+                    //So iterate over all boxes to find the correct one by checking attributes
+                    for (let key of Object.keys(objs)) {
+                        if (objs[key].attribs.some(attr => attr === "\\Sent")) {
+                            // console.log("[Gmail]/" + key.trim(), ":",objs[key].attribs[1])
+                            imap.openBox("[Gmail]/" + key.trim(), true, cb);
+                            return; 
+                        }
                     }
-    
+                    // Fallback
+                    imap.openBox("[Gmail]/Sent Mail", true, cb);
+                } else {
+                     imap.openBox("Sent", true, cb);
                 }
             } else {
                 imap.openBox("INBOX", true, cb);
@@ -121,20 +132,34 @@ function get_emails(imap, search_str,callback) {
       
     imap.once('ready', function() {
     openBox(function(err, box) {
-    if (err) throw err;
+    if (err) {
+        console.log(err);
+        imap.end();
+        return;
+    }
 
     //Get ALL emails in the box
     imap.search(['ALL'], function(err, results) { 
-        if (err) throw err;
+        if (err) {
+            console.log(err);
+            imap.end();
+            return;
+        }
+
+        // FIX: Handle empty box crash
+        if(!results || results.length === 0) {
+            imap.end();
+            return;
+        }
 
         var f = imap.fetch(results, { bodies: '' });
         f.on('message', function(msg, seqno) {
-        console.log('Message #%d', seqno); 
+        // console.log('Message #%d', seqno); 
         var prefix = '(#' + seqno + ') ';
 
         //Logic of handling data stream 
         msg.on('body', function(stream, info) {
-            console.log(prefix + 'Body');
+            // console.log(prefix + 'Body');
             const chunks = [];
             //Push received chunks to an array
             stream.on("data", function (chunk) {
@@ -147,11 +172,11 @@ function get_emails(imap, search_str,callback) {
                     var target, subject, content;
                     //Inbox and Sent mails parsed differently
                     if (search_str === "INBOX") {
-                        target = mail.from.text;
+                        target = mail.from ? mail.from.text : "Unknown";
                         subject = mail.subject;
                         content = mail.text;
                     } else {
-                        target = mail.to.text;
+                        target = mail.to ? mail.to.text : "Unknown";
                         subject = mail.subject;
                         content = mail.text;
                     }
@@ -166,10 +191,10 @@ function get_emails(imap, search_str,callback) {
         });
 
         msg.once('attributes', function(attrs) {
-            console.log(prefix + 'Attributes: %s', inspect(attrs, false, 8));
+            // console.log(prefix + 'Attributes: %s', inspect(attrs, false, 8));
         });
         msg.once('end', function() {
-            console.log(prefix + 'Finished');
+            // console.log(prefix + 'Finished');
         });
         });
         f.once('error', function(err) {
@@ -189,8 +214,12 @@ function get_emails(imap, search_str,callback) {
     
     imap.once('end', function() {
         console.log('Connection ended');
-        callback(emails)
+        // Wait briefly for parsing to finish
+        setTimeout(() => callback(emails), 1000);
     });
     
     imap.connect(); 
 }
+
+// IMPORTANT: Export the router!
+module.exports = router;
