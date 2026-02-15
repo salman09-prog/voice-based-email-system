@@ -5,10 +5,9 @@ const Gmail = require('gmail-send');
 const simpleParser = require('mailparser').simpleParser;
 const {SUCCESS, NOT_AUTH, UNEXPECTED} = require("./error_codes.js");
 
-// 1. Fetch Emails Route
+// 1. Fetch Emails Route (OPTIMIZED to fetch only latest 10)
 router.post('/fetch_emails', function(req, response) {
     if (req.session.address) {
-        // Wrap in try-catch for safety
         try {
             get_emails(new Imap({
                 user: req.session.address,
@@ -17,18 +16,16 @@ router.post('/fetch_emails', function(req, response) {
                 port: 993,
                 tlsOptions: { rejectUnauthorized: false },
                 tls: true,
-                authTimeout: 3000 // 3 seconds timeout
+                authTimeout: 10000 
             }), req.body["search"], (err, emails) => {
-                // If error occurs (like wrong password)
                 if (err) {
                     console.log("IMAP Logic Error:", err);
                     response.send({
                         code: UNEXPECTED,
-                        detail: "Could not fetch emails. Check your Google App Password.",
+                        detail: "Could not fetch emails. Ensure you used a Google App Password.",
                         data: null
                     });
                 } else {
-                    // Success
                     response.send({
                         code: SUCCESS,
                         detail: "Success",
@@ -87,9 +84,9 @@ function write_email(options, content, callback) {
 // Helper: Fetch Emails
 function get_emails(imap, search_str, callback) {
     var emails = [];
-    var isDone = false; // Prevent double callbacks
+    var isDone = false;
 
-    // 1. Handle Connection Errors (Prevent 502 Crash)
+    // 1. Handle Connection Errors
     imap.once('error', function(err) {
         console.log("IMAP Connection Error:", err);
         if(!isDone) {
@@ -114,41 +111,50 @@ function get_emails(imap, search_str, callback) {
                 return;
             }
             
-            // Search criteria
-            imap.search(['ALL'], function(err, results) { 
-                if (err || !results || results.length === 0) {
-                    imap.end();
-                    return;
-                }
+            // --- OPTIMIZATION START: Fetch only last 10 messages ---
+            const totalMessages = box.messages.total;
+            
+            // If inbox is empty
+            if (totalMessages === 0) {
+                imap.end();
+                return;
+            }
 
-                var f = imap.fetch(results, { bodies: '' });
-                
-                f.on('message', function(msg, seqno) {
-                    msg.on('body', function(stream, info) {
-                        const chunks = [];
-                        stream.on("data", function (chunk) { chunks.push(chunk); });
-                        stream.on("end", function () {
-                            simpleParser(Buffer.concat(chunks).toString(), (err, mail) => {
-                                if(mail) {
-                                    emails.push({
-                                        target: (search_str === "INBOX") ? (mail.from?.text || "Unknown") : (mail.to?.text || "Unknown"),
-                                        subject: mail.subject || "No Subject",
-                                        content: mail.text || ""
-                                    });
-                                }
-                            });
+            // Calculate range: e.g., if 100 emails, fetch 91:100
+            const start = Math.max(1, totalMessages - 9); 
+            const fetchRange = `${start}:${totalMessages}`;
+
+            console.log(`Fetching messages from ${fetchRange}`);
+
+            var f = imap.seq.fetch(fetchRange, { bodies: '' });
+            
+            f.on('message', function(msg, seqno) {
+                msg.on('body', function(stream, info) {
+                    const chunks = [];
+                    stream.on("data", function (chunk) { chunks.push(chunk); });
+                    stream.on("end", function () {
+                        simpleParser(Buffer.concat(chunks).toString(), (err, mail) => {
+                            if(mail) {
+                                // Add to beginning of array so newest is first
+                                emails.unshift({
+                                    target: (search_str === "INBOX") ? (mail.from?.text || "Unknown") : (mail.to?.text || "Unknown"),
+                                    subject: mail.subject || "No Subject",
+                                    content: mail.text || ""
+                                });
+                            }
                         });
                     });
                 });
-
-                f.once('error', function(err) { console.log('Fetch error: ' + err); });
-                
-                f.once('end', function() {
-                    console.log('Done fetching!');
-                    // Short timeout to let parsing finish
-                    setTimeout(() => imap.end(), 1000);
-                });
             });
+
+            f.once('error', function(err) { console.log('Fetch error: ' + err); });
+            
+            f.once('end', function() {
+                console.log('Done fetching!');
+                // Give parser 1 second to finish processing before closing
+                setTimeout(() => imap.end(), 1000);
+            });
+            // --- OPTIMIZATION END ---
         });
     });
 
@@ -159,10 +165,11 @@ function get_emails(imap, search_str, callback) {
             if (err) return cb(err);
             
             if (search_str === "SENT") {
-                let sentBox = "[Gmail]/Sent Mail"; // Default
+                let sentBox = "Sent"; // Default
                 if(boxes && boxes["[Gmail]"] && boxes["[Gmail]"].children) {
                     const children = boxes["[Gmail]"].children;
                     for (let key in children) {
+                        // Find folder with \Sent attribute
                         if (children[key].attribs.some(a => a === "\\Sent")) {
                             sentBox = "[Gmail]/" + key;
                             break;
