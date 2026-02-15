@@ -9,7 +9,6 @@ const {SUCCESS, NOT_AUTH, UNEXPECTED} = require("./error_codes.js");
 router.post('/fetch_emails', function(req, response) {
     if (req.session.address) {
         try {
-            // Remove spaces from password just in case
             const cleanPassword = req.session.password.replace(/ /g, '');
             
             get_emails(new Imap({
@@ -25,7 +24,6 @@ router.post('/fetch_emails', function(req, response) {
                     console.log("IMAP Error:", err);
                     response.send({
                         code: UNEXPECTED,
-                        // Send the ACTUAL error to the frontend
                         detail: "Fetch Error: " + (err.message || err),
                         data: null
                     });
@@ -50,7 +48,6 @@ router.post('/fetch_emails', function(req, response) {
 router.post('/send_email', function(req, response) {
     if (req.session.address) {
         const body = req.body;
-        // Clean the password (remove spaces)
         const cleanPassword = req.session.password.replace(/ /g, '');
 
         write_email({
@@ -61,7 +58,6 @@ router.post('/send_email', function(req, response) {
         }, body["content"], (err, res) => {
             if (err) {
                 console.log("Send Error:", err);
-                // Send the ACTUAL error to the frontend
                 response.send({ 
                     code: UNEXPECTED, 
                     detail: "Send Error: " + (err.message || err), 
@@ -76,10 +72,19 @@ router.post('/send_email', function(req, response) {
     }
 });
 
-// Helper: Send Email
+// Helper: Send Email (UPDATED TO FIX TIMEOUT)
 function write_email(options, content, callback) {
     try {
-        const send = Gmail(options);
+        // We explicitly use Port 587 to avoid Render blocking Port 465
+        const send = Gmail({
+            user: options.user,
+            pass: options.pass,
+            to:   options.to,
+            subject: options.subject,
+            port: 587,         // Standard SMTP Port
+            secure: false      // Use STARTTLS (Required for Port 587)
+        });
+
         send({ text: content }, (error, result) => {
             if (error) callback(error, null);
             else callback(null, result);
@@ -109,7 +114,6 @@ function get_emails(imap, search_str, callback) {
             const totalMessages = box.messages.total;
             if (totalMessages === 0) { imap.end(); return; }
 
-            // Fetch last 10
             const start = Math.max(1, totalMessages - 9); 
             const fetchRange = `${start}:${totalMessages}`;
 
