@@ -5,6 +5,15 @@ const { createHash } = require('crypto');
 // FIX: Changed ".." to "." because db.js is in the same folder
 const { pool } = require("./db.js"); 
 const { UNEXPECTED, SUCCESS, NOT_FOUND, NOT_AUTH } = require("./error_codes.js");
+const { google } = require("googleapis");
+
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+
 
 // SHA256 function for hashing passwords
 function computeSHA256(str) {
@@ -12,6 +21,42 @@ function computeSHA256(str) {
   hash.write(str);
   return hash.digest('hex');
 }
+
+
+router.get("/google", (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send"
+    ],
+  });
+
+  res.redirect(url);
+});
+
+
+router.get("/google/callback", async (req, res) => {
+  const code = req.query.code;
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+    const profile = await gmail.users.getProfile({ userId: "me" });
+
+    // Store tokens in session (better: store in DB)
+    req.session.tokens = tokens;
+    req.session.address = profile.data.emailAddress;
+
+    res.redirect("https://voice-based-email-system.vercel.app");
+  } catch (err) {
+    console.log(err);
+    res.send("Authentication failed");
+  }
+});
 
 // 1. Sign In Route (POST)
 router.post('/sign_in', function(req, response) {

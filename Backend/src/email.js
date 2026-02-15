@@ -1,9 +1,14 @@
+const sgMail = require("@sendgrid/mail");
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+
 const express = require("express");
 const router = express.Router();
 var Imap = require("imap");
-const nodemailer = require("nodemailer");
 const simpleParser = require("mailparser").simpleParser;
 const { SUCCESS, NOT_AUTH, UNEXPECTED } = require("./error_codes.js");
+
 
 // 1. Fetch Emails Route
 router.post("/fetch_emails", function (req, response) {
@@ -59,40 +64,61 @@ router.post("/fetch_emails", function (req, response) {
 });
 
 // 2. Send Email Route
-router.post("/send_email", function (req, response) {
-  if (req.session.address) {
-    const body = req.body;
-    const cleanPassword = req.session.password.replace(/ /g, "");
-
-    write_email(
-      {
-        user: req.session.address,
-        pass: cleanPassword,
-        to: body["to"],
-        subject: body["subject"],
-      },
-      body["content"],
-      (err, res) => {
-        if (err) {
-          console.log("Send Error:", err);
-          response.send({
-            code: UNEXPECTED,
-            detail: "Send Error: " + (err.message || "Timeout"),
-            data: null,
-          });
-        } else {
-          response.send({ code: SUCCESS, detail: "Success", data: null });
-        }
-      },
-    );
-  } else {
-    response.send({
+router.post("/send_email", async (req, res) => {
+  if (!req.session.tokens) {
+    return res.send({
       code: NOT_AUTH,
       detail: "User not authenticated",
       data: null,
     });
   }
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+
+  oauth2Client.setCredentials(req.session.tokens);
+
+  const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  const body = req.body;
+
+  const message = [
+    `From: ${req.session.address}`,
+    `To: ${body.to}`,
+    `Subject: ${body.subject}`,
+    "",
+    body.content,
+  ].join("\n");
+
+  const encodedMessage = Buffer.from(message)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  try {
+    await gmail.users.messages.send({
+      userId: "me",
+      requestBody: {
+        raw: encodedMessage,
+      },
+    });
+
+    res.send({ code: SUCCESS, detail: "Success", data: null });
+  } catch (err) {
+    console.log(err);
+    res.send({
+      code: UNEXPECTED,
+      detail: "Send Error",
+      data: null,
+    });
+  }
 });
+
+
 
 // Helper: Send Email (FORCE IPv4 & SSL)
 async function write_email(options, content, callback) {

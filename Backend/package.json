@@ -19,6 +19,7 @@
     "express": "^4.22.1",
     "express-session": "^1.19.0",
     "gmail-send": "^1.8.14",
+    "googleapis": "^171.4.0",
     "imap": "^0.8.17",
     "mailparser": "^3.7.2",
     "nodemailer": "^8.0.1",
