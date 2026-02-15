@@ -1,10 +1,18 @@
 const express = require('express')
 var session = require('express-session');
 var bodyParser = require('body-parser');
+const cors = require('cors'); // Make sure to require this
 const {sign_in, login, logout, fetch_user, delete_user} = require("./src/auth.js")
 const {fetch_emails, send_email} = require("./src/email.js")
 
 const app = express()
+app.use(cors({
+    origin: [
+        "https://voice-based-email-system.vercel.app", // Your Vercel Frontend
+        "http://localhost:3000" // Keep this for local testing
+    ],
+    credentials: true // Important for cookies/sessions to work
+}));
 
 //port number is to be changed according to deployed platform
 const port = 8080
@@ -13,7 +21,21 @@ const port = 8080
 app.use(bodyParser.json()); 
 
 //Middleware for inserting session to incoming  requests
-app.use(session({secret: '5813213455karubusnac',saveUninitialized: true,resave: true}));
+app.use(session({
+    store: new pgSession({
+        pool: pool,
+        tableName: 'session'
+    }),
+    secret: "secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: true, // MUST be true for Vercel/Render (HTTPS)
+        sameSite: 'none', // MUST be 'none' to allow Cross-Site cookies
+        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    }
+}));
+
 
 app.post('/api/auth/sign_in', sign_in);             //accepts(JSON)  username, password, address 
 app.post('/api/auth/login', login);                 //accepts(JSON)  password, address 
