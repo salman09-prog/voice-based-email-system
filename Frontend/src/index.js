@@ -10,9 +10,7 @@ import App from './App';
 // 3. Assign process to window
 window.process = process;
 
-Axios.defaults.baseURL = process.env.NODE_ENV === 'production' 
-  ? "https://voice-based-email-system-4353.onrender.com" 
-  : "http://localhost:5000";
+Axios.defaults.baseURL = "https://voice-based-email-system-4353.onrender.com" 
 
 // 4. Render app
 ReactDOM.render(<App />, document.getElementById('root'));
