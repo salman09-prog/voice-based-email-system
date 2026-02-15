@@ -1,12 +1,9 @@
-const { Pool } = require('pg')
+const { Pool } = require('pg');
 
-//Configurations for the database connection
-//There should be changed according the deployed platform
-exports.pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'mail_system',
-    password: 'postgres',
-    port: 5432,
-})
+// Use the Environment Variable provided by Render
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false } // Required for Render connections
+});
 
+module.exports = { pool };
